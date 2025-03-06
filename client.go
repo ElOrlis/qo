@@ -46,9 +46,15 @@ func (c *Client) do(
 		if resp.StatusCode == http.StatusTooManyRequests {
 			var seconds int64
 			seconds, err = strconv.ParseInt(resp.Header.Get("Retry-After"), 10, 64)
-			if err == nil {
-				return nil, backoff.RetryAfter(int(seconds))
+			if err != nil {
+				return nil, backoff.Permanent(
+					fmt.Errorf(
+						"failed to parse Retry-After header into a valid integer, error: %s",
+						err,
+					),
+				)
 			}
+			return nil, backoff.RetryAfter(int(seconds))
 		}
 
 		if c.retryStatusCodes[resp.StatusCode] {
