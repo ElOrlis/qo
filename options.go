@@ -6,6 +6,17 @@ import (
 	"strings"
 )
 
+func WithRetryStatusCodes(s []int) func(*Client) error {
+	return func(c *Client) error {
+		rsc := make(map[int]bool)
+		for _, v := range s {
+			rsc[v] = true
+		}
+		c.retryStatusCodes = rsc
+		return nil
+	}
+}
+
 func Body(b []byte) func(*http.Request) error {
 	return func(r *http.Request) error {
 		if b != nil {

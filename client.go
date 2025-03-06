@@ -9,6 +9,10 @@ import (
 	"github.com/cenkalti/backoff/v5"
 )
 
+func New(args ...func(*Client) error) (*Client, error) {
+	return nil, nil
+}
+
 type Client struct {
 	client           *http.Client
 	backOffConfig    *backoff.ExponentialBackOff
