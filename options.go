@@ -4,21 +4,30 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
-func WithRetryStatusCodes(s []int) func(*Client) error {
-	return func(c *Client) error {
-		rsc := make(map[int]bool)
-		for _, v := range s {
-			rsc[v] = true
-		}
-		c.retryStatusCodes = rsc
+type BackOff interface {
+	NextBackOff() time.Duration
+	Reset()
+}
+
+func RetryStatusCodes(s []int) func(*Options) error {
+	return func(o *Options) error {
+		o.sc = s
 		return nil
 	}
 }
 
-func Body(b []byte) func(*http.Request) error {
-	return func(r *http.Request) error {
+func WithBackOff(b BackOff) func(*Options) error {
+	return func(o *Options) error {
+		o.backOff = b
+		return nil
+	}
+}
+
+func Body(b []byte) func(*http.Client, *http.Request) error {
+	return func(_ *http.Client, r *http.Request) error {
 		if b != nil {
 			r.Body = io.NopCloser(strings.NewReader(string(b)))
 		}
@@ -26,8 +35,8 @@ func Body(b []byte) func(*http.Request) error {
 	}
 }
 
-func Header(h http.Header) func(*http.Request) error {
-	return func(r *http.Request) error {
+func Header(h http.Header) func(*http.Client, *http.Request) error {
+	return func(_ *http.Client, r *http.Request) error {
 		if h != nil {
 			r.Header = h
 		}
@@ -35,15 +44,15 @@ func Header(h http.Header) func(*http.Request) error {
 	}
 }
 
-func QueryValues(q Query) func(*http.Request) error {
-	return func(r *http.Request) error {
+func QueryValues(q Query) func(*http.Client, *http.Request) error {
+	return func(_ *http.Client, r *http.Request) error {
 		q.compile(r)
 		return nil
 	}
 }
 
-func UrlParams(p Params) func(*http.Request) error {
-	return func(r *http.Request) error {
+func UrlParams(p Params) func(*http.Client, *http.Request) error {
+	return func(_ *http.Client, r *http.Request) error {
 		p.formatUrl(r)
 		return nil
 	}
