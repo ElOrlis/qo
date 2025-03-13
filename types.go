@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+type Null[T any] struct {
+	Valid bool
+	V     T
+}
+
 type Query struct {
 	Pairs  map[string]string
 	Values []string
