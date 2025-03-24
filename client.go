@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/cenkalti/backoff/v5"
 )
@@ -13,19 +15,29 @@ func New() (*Client, error) {
 }
 
 type Client struct {
-	client *http.Client
-	retry  *RetryPolicy
-	logr   Logger
+	client       *http.Client
+	retry        RetryPolicy
+	logr         Logger
+	cacheEnabled bool
+	cacheTTL     time.Duration
+	cache        Cache
+	cacheKeyFunc CacheKeyFunc
 }
 
-func defaultRetryHook(r *Transaction) func() (*http.Response, error) {
-	return func() (*http.Response, error) {
-		resp, err := r.Client.Do(r.Request)
-		if err != nil {
-			return nil, backoff.Permanent(err)
+func parseMaxAge(cc string) (time.Duration, error) {
+	const prefix = "max-age="
+	for _, part := range strings.Split(cc, ",") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, prefix) {
+			ttlStr := part[len(prefix):]
+			ttl, err := time.ParseDuration(ttlStr + "s")
+			if err != nil {
+				return 0, err
+			}
+			return ttl, nil
 		}
-		return resp, nil
 	}
+	return 0, fmt.Errorf("max-age not found")
 }
 
 func (c *Client) do(
@@ -48,7 +60,17 @@ func (c *Client) do(
 		return nil, err
 	}
 	c.logr.Info(ctx, "successfully created http request")
-	tx := Transaction{Client: c.client, Request: req, Retry: c.retry}
+
+	cli := *c.client
+	retryPolicy := c.retry
+	tx := Transaction{
+		Client:       &cli,
+		Request:      req,
+		Retry:        &retryPolicy,
+		CacheKeyFunc: c.cacheKeyFunc,
+		CacheEnabled: c.cacheEnabled,
+		CacheTTL:     c.cacheTTL,
+	}
 
 	for _, opt := range opts {
 		err := opt(&tx)
@@ -57,17 +79,22 @@ func (c *Client) do(
 		}
 	}
 
-	var retryHook backoff.Operation[*http.Response]
-
-	switch tx.Retry.Hook != nil {
-	case true:
-		retryHook = defaultRetryHook(&tx)
-	case false:
-		retryHook = tx.Retry.Hook(tx.Client, tx.Request)
+	if method == http.MethodGet && tx.CacheEnabled && c.cache != nil {
+		var keyFunc CacheKeyFunc
+		if tx.CacheKeyFunc != nil {
+			keyFunc = tx.CacheKeyFunc
+		} else {
+			keyFunc = c.cacheKeyFunc
+		}
+		cacheKey := keyFunc(tx.Request)
+		if resp, ok := c.cache.Get(cacheKey); ok {
+			return resp, nil
+		}
 	}
 
-	var args []backoff.RetryOption
+	c.logr.Info(ctx, "created request transaction and added optional parameters")
 
+	var args []backoff.RetryOption
 	args = append(args,
 		backoff.WithBackOff(tx.Retry.Policy),
 		backoff.WithMaxTries(tx.Retry.MaxRetries),
@@ -80,11 +107,34 @@ func (c *Client) do(
 
 	resp, err := backoff.Retry(
 		ctx,
-		retryHook,
+		tx.Retry.Hook(tx.Client, tx.Request),
 		args...,
 	)
 	if err != nil {
+		c.logr.Error(ctx, "error while retrying operation", "Error", err)
 		return nil, err
+	}
+
+	if method == http.MethodGet && tx.CacheEnabled && c.cache != nil {
+		var keyFunc CacheKeyFunc
+		if tx.CacheKeyFunc != nil {
+			keyFunc = tx.CacheKeyFunc
+		} else {
+			keyFunc = c.cacheKeyFunc
+		}
+		cacheKey := keyFunc(tx.Request)
+		ttl := tx.CacheTTL
+		if cc := resp.Header.Get("Cache-Control"); cc != "" {
+			if parsedTTL, err := parseMaxAge(cc); err == nil && parsedTTL > 0 {
+				ttl = parsedTTL
+			}
+		}
+
+		if err = c.cache.SetTTL(cacheKey, resp, ttl); err != nil {
+			c.logr.Error(ctx, "failed to cache response", "Error", err)
+		} else {
+			c.logr.Info(ctx, "cached response for %s", cacheKey)
+		}
 	}
 
 	return resp, nil

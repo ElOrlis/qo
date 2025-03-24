@@ -15,6 +15,23 @@ var (
 	RetryAfter = backoff.RetryAfter
 )
 
+func defaultRetryPolicy() RetryPolicy {
+	return RetryPolicy{
+		Hook: func(cli HttpClient, r *http.Request) func() (*http.Response, error) {
+			return func() (*http.Response, error) {
+				resp, err := cli.Do(r)
+				if err != nil {
+					return nil, Permanent(err)
+				}
+				return resp, nil
+			}
+		},
+		MaxRetries:     3,
+		MaxElapsedTime: 2 * time.Second,
+		Policy:         NewExponentialBackoff(),
+	}
+}
+
 type RetryPolicy struct {
 	Hook           func(HttpClient, *http.Request) func() (*http.Response, error)
 	MaxRetries     uint
@@ -24,14 +41,4 @@ type RetryPolicy struct {
 		NextBackOff() time.Duration
 		Reset()
 	}
-}
-
-type HttpClient interface {
-	Do(*http.Request) (*http.Response, error)
-}
-
-type Transaction struct {
-	Client  *http.Client
-	Request *http.Request
-	Retry   *RetryPolicy
 }

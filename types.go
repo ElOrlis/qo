@@ -5,7 +5,21 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
+
+type HttpClient interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
+type Transaction struct {
+	Client       *http.Client
+	Request      *http.Request
+	Retry        *RetryPolicy
+	CacheKeyFunc CacheKeyFunc
+	CacheEnabled bool
+	CacheTTL     time.Duration
+}
 
 type Null[T any] struct {
 	Valid bool
