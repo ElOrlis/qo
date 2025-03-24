@@ -64,15 +64,15 @@ type InMemCache struct {
 	mu   sync.RWMutex
 }
 
-func (c *InMemCache) SetTTL(key string, resp *http.Response, ttl time.Duration) error {
-	defer func(res *http.Response) {
-		_ = res.Close
-	}(resp)
-
-	b, err := io.ReadAll(resp.Body)
+func (c *InMemCache) SetTTL(key string, resp *http.Response, ttl time.Duration) (err error) {
+	var b []byte
+	b, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		err = resp.Body.Close()
+	}()
 
 	resp.Body = io.NopCloser(bytes.NewReader(b))
 
