@@ -6,6 +6,18 @@ import (
 	"strings"
 )
 
+type CacheKeyFunc func(*http.Request) string
+
+func WithCacheKeyFunc(f CacheKeyFunc) ClientOption {
+	return func(c *Client) {
+		c.cacheKeyFunc = f
+	}
+}
+
+func defaultCacheKeyFunc(r *http.Request) string {
+	return r.URL.String()
+}
+
 type ClientOption func(*Client)
 
 func Body(b []byte) func(tx *Transaction) error {

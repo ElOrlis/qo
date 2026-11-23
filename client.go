@@ -24,9 +24,9 @@ type Client struct {
 	cacheKeyFunc CacheKeyFunc
 }
 
-func parseMaxAge(cc string) (time.Duration, error) {
+func maxAge(cc string) (time.Duration, error) {
 	const prefix = "max-age="
-	for _, part := range strings.Split(cc, ",") {
+	for part := range strings.SplitSeq(cc, ",") {
 		part = strings.TrimSpace(part)
 		if strings.HasPrefix(part, prefix) {
 			ttlStr := part[len(prefix):]
@@ -45,10 +45,6 @@ func (c *Client) do(
 	method, url string,
 	opts ...func(*Transaction) error,
 ) (*http.Response, error) {
-	c.logr.Info(ctx, "Initiating request...")
-	defer func() {
-		c.logr.Info(ctx, "...request completed")
-	}()
 	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		c.logr.Error(
@@ -59,7 +55,6 @@ func (c *Client) do(
 		)
 		return nil, err
 	}
-	c.logr.Info(ctx, "successfully created http request")
 
 	cli := *c.client
 	retryPolicy := c.retry
@@ -92,8 +87,6 @@ func (c *Client) do(
 		}
 	}
 
-	c.logr.Info(ctx, "created request transaction and added optional parameters")
-
 	var args []backoff.RetryOption
 	args = append(args,
 		backoff.WithBackOff(tx.Retry.Policy),
@@ -111,7 +104,6 @@ func (c *Client) do(
 		args...,
 	)
 	if err != nil {
-		c.logr.Error(ctx, "error while retrying operation", "Error", err)
 		return nil, err
 	}
 
@@ -125,18 +117,13 @@ func (c *Client) do(
 		cacheKey := keyFunc(tx.Request)
 		ttl := tx.CacheTTL
 		if cc := resp.Header.Get("Cache-Control"); cc != "" {
-			if parsedTTL, err := parseMaxAge(cc); err == nil && parsedTTL > 0 {
+			if parsedTTL, err := maxAge(cc); err == nil && parsedTTL > 0 {
 				ttl = parsedTTL
 			}
 		}
 
-		if err = c.cache.SetTTL(cacheKey, resp, ttl); err != nil {
-			c.logr.Error(ctx, "failed to cache response", "Error", err)
-		} else {
-			c.logr.Info(ctx, "cached response for %s", cacheKey)
-		}
+		err = c.cache.SetTTL(cacheKey, resp, ttl)
 	}
-
 	return resp, nil
 }
 

@@ -72,7 +72,7 @@ func (p Params) formatUrl(r *http.Request) {
 	if len(p) > 0 {
 		path := r.URL.Path
 		for _, v := range p {
-			path = strings.Replace(path, fmt.Sprintf(":%s", v.Name), v.Value, -1)
+			path = strings.ReplaceAll(path, fmt.Sprintf(":%s", v.Name), v.Value)
 		}
 		r.URL.Path = path
 	}
